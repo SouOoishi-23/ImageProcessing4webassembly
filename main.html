@@ -1,0 +1,201 @@
+﻿<!doctype html>
+<html lang="en-us">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <script src="opencv.js" type="text/javascript"></script>
+
+    <title>Emscripten-Generated Code</title>
+</head>
+
+<body>
+    <!--<style> body {background-color: rgb(242, 242, 242);}</style>-->
+    <style>
+        body {
+            background-color: rgb(227, 198, 198);
+        }
+    </style>
+    <h1 id="loading">Loding OpenCV</h1>
+    <div>
+        <table>
+            <tr>
+                <td>sigma space:</td>
+                <td id="current_sigma_s"></td>
+                <td>
+                    <input type="range" id="sigma_s" name="sigma" min="1" max="50" value="3" />
+                </td>
+            </tr>
+        </table>
+        <input id="update" type="button" name="update" value="UPDATE" />
+    </div>
+    <div>
+        <input type="file" id="input">
+    </div>
+    <div>
+        <canvas id="input_image"></canvas>
+    </div>
+    <div>
+        <canvas id="output_image"></canvas>
+        <p id="my_time"></p>
+    </div>
+    <div>
+        <canvas id="cv_Image"></canvas>
+        <p id="cv_time"></p>
+    </div>
+
+    <script type='text/javascript'>
+        var Module = {
+            preRun: [],
+            postRun: [],
+            print: (function () {
+                return function (text) {
+                    if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+                    console.log(text);
+                };
+            })(),
+            printErr: function (text) {
+                if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+                console.error(text);
+            },
+            totalDependencies: 0,
+            monitorRunDependencies: function (left) {
+                this.totalDependencies = Math.max(this.totalDependencies, left);
+            }
+        };
+        console.log('Downloading...');
+        window.onerror = function (event) {
+            // TODO: do not warn on ok events like simulating an infinite loop or exitStatus
+        };
+        Module.onRuntimeInitialized = function () {
+            _initialized();
+        }
+        cv.onRuntimeInitialized = function () {
+            // do all your work here
+            document.getElementById('loading').innerHTML = 'OpenCV.js (4.5.1) is ready.';
+            input.addEventListener("change", loadImage, false);
+        };
+
+        //var file = document.getElementById("input");
+        var canvas = document.getElementById("input_image");
+        var output_canvas = document.getElementById("output_image");
+        var cv_canvas = document.getElementById("cv_Image");
+        var sigma_s = document.getElementById("sigma_s");
+        document.getElementById('current_sigma_s').innerText = sigma_s.value;
+        var update_window = document.getElementById("update");
+
+        function convertImage(cvs, sigma) {
+            const height = cvs.height;
+            const width = cvs.width;
+            var ctx = cvs.getContext("2d");
+
+            const data = ctx.getImageData(0, 0, width, height);
+            const bytes = 4; // sizeof(type)
+            const b = data.data.length * bytes;
+            const buf = Module._mm_malloc(b);
+            Module.HEAPF32.set(data.data, buf / 4);
+            Module._GaussianFilter(buf, width, height, 4, sigma);
+            //Module._GaussianFilterwithoutSIMD(buf, width, height, 4, sigma);
+            //Module._SeparableGaussianFilterwithoutSIMD(buf, width, height, 4, sigma);
+            let result_ptr = Module._getResultPtr();
+            let size = Module._getResultSize();
+            show(output_canvas, result_ptr, width, height, size);
+            Module._mm_free(buf);
+            //delete buf;
+            //console.log("free buf");
+            //Module._usingMemory();
+            //Module._destroyBuffer(size);
+            //console.log("free size");
+            //Module._usingMemory();
+            //Module._destroyBuffer(result_ptr);
+            //console.log("free result_ptr");
+            //Module._usingMemory();
+            //Module._usingMemory();
+        }
+
+        function show(cvs, ptr, width, height, size) {
+            var ctx = cvs.getContext("2d");
+            cvs.width = width;
+            cvs.height = height;
+            let dst = new Uint8ClampedArray(Module.HEAP32.buffer, ptr, size);
+            let img_data = new ImageData(dst, width);
+            ctx.putImageData(img_data, 0, 0);
+            delete img_data;
+            delete dst;
+        }
+
+        function cvGF(input, cvs_id, sigma) {
+            let src = cv.imread(input);
+            let dst = new cv.Mat();
+            let size = new cv.Size(2 * 3 * sigma + 1, 2 * 3 * sigma + 1);
+            cv.GaussianBlur(src, dst, size, sigma, sigma, cv.BORDER_DEFAULT);
+            cv.imshow(cvs_id, dst);
+            src.delete();
+            dst.delete();
+        }
+
+        function imgProc(img, sigma) {
+            console.log("imgProc");
+            const start = Date.now();
+            convertImage(canvas, sigma);
+            const end = Date.now();
+            document.getElementById("my_time").innerText = "My implementation is " + (end - start) + "ms";
+            const cv_start = Date.now();
+            cvGF("input_image", "cv_Image", sigma);
+            const cv_end = Date.now();
+            document.getElementById("cv_time").innerText = "OpenCV implementation is " + (cv_end - cv_start) + "ms";
+        }
+
+        function loadImage(e) {
+            console.log("start 'function loadImage'");
+            var file_data = document.getElementById("input").files[0];
+            if (!file_data.type.match("image.*")) {
+                alert('choose image file');
+                return;
+            }
+
+            var reader = new FileReader;
+            var img = new Image();
+            var ctx = canvas.getContext('2d');
+            reader.onloadend = function () {
+                console.log("reader onload");
+                img.src = reader.result;
+                img.onload = function () {
+                    console.log("img onload");
+                    canvas.width = 512;//img.width;
+                    canvas.height = 512 * img.height / img.width;//img.height;
+                    var ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const sigma = Number(sigma_s.value);
+                    imgProc(canvas, sigma);
+                }
+            }
+
+            reader.readAsDataURL(file_data);
+        }
+
+        //input.addEventListener("change", loadImage, false);
+        canvas.addEventListener('load', convertImage, false);
+        sigma_s.addEventListener('input', (e) => {
+            document.getElementById("current_sigma_s").textContent = e.target.value;
+        })
+        update_window.addEventListener('click', (e) => {
+            var cvs = canvas;
+            const sigma = Number(sigma_s.value);
+            //document.location.reload();
+
+            canvas = cvs;
+            imgProc(cvs, sigma);
+            //document.location.reload();
+            //if (!file_data.type.match("image.*")) {
+            //    alert('choose image file');
+            //    return;
+            //}
+            //loadImage();
+        }, false)
+
+    </script>
+    <script async type="text/javascript" src="main.js"></script>
+</body>
+
+</html>
